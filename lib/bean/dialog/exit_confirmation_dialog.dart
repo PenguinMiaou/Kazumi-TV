@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:kazumi/bean/widget/dpad_radio_group.dart';
 
 enum ExitDialogAction { exit, minimizeToTray }
 
@@ -91,7 +92,7 @@ class _ExitConfirmationDialogState extends State<ExitConfirmationDialog> {
               ),
             ),
             const SizedBox(height: 24),
-            RadioGroup<ExitDialogAction>(
+            DpadRadioGroup<ExitDialogAction>(
               groupValue: _action,
               onChanged: (value) {
                 if (value != null) setState(() => _action = value);

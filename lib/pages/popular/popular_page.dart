@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:kazumi/bean/widget/bangumi_mirror_error_widget.dart';
 import 'package:kazumi/bean/widget/kazumi_menu.dart';
@@ -28,6 +29,7 @@ class PopularPage extends StatefulWidget {
 
 class _PopularPageState extends State<PopularPage> {
   late final ScrollController scrollController;
+  final _toTopFocus = FocusNode(debugLabel: 'Popular scroll to top');
   PopularController get popularController => widget.controller;
 
   @override
@@ -46,7 +48,22 @@ class _PopularPageState extends State<PopularPage> {
   void dispose() {
     scrollController.removeListener(scrollListener);
     scrollController.dispose();
+    _toTopFocus.dispose();
     super.dispose();
+  }
+
+  /// D-pad: past the last column, right moves on to the scroll-to-top button.
+  KeyEventResult _handleGridKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent ||
+        event.logicalKey != LogicalKeyboardKey.arrowRight) {
+      return KeyEventResult.ignored;
+    }
+    final focused = FocusManager.instance.primaryFocus;
+    if (focused == null ||
+        !focused.focusInDirection(TraversalDirection.right)) {
+      _toTopFocus.requestFocus();
+    }
+    return KeyEventResult.handled;
   }
 
   void scrollListener() {
@@ -67,7 +84,11 @@ class _PopularPageState extends State<PopularPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: CustomScrollView(
+      body: Focus(
+        canRequestFocus: false,
+        skipTraversal: true,
+        onKeyEvent: _handleGridKey,
+        child: CustomScrollView(
         controller: scrollController,
         slivers: [
           buildSliverAppBar(),
@@ -115,7 +136,9 @@ class _PopularPageState extends State<PopularPage> {
               })),
         ],
       ),
+      ),
       floatingActionButton: FloatingActionButton(
+        focusNode: _toTopFocus,
         onPressed: () => scrollController.animateTo(0,
             duration: const Duration(milliseconds: 350), curve: Curves.easeOut),
         child: const Icon(Icons.arrow_upward),
@@ -148,7 +171,9 @@ class _PopularPageState extends State<PopularPage> {
         delegate: SliverChildBuilderDelegate(
           (BuildContext context, int index) {
             return bangumiList.isNotEmpty
-                ? BangumiCardV(bangumiItem: bangumiList[index])
+                // D-pad: start on the first title when the page opens.
+                ? BangumiCardV(
+                    bangumiItem: bangumiList[index], autofocus: index == 0)
                 : null;
           },
           childCount: bangumiList.isNotEmpty ? bangumiList.length : 10,

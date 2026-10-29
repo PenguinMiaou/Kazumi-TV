@@ -9,6 +9,7 @@ import 'package:kazumi/modules/bangumi/sync_priority.dart';
 import 'package:kazumi/pages/settings/sync/sync_settings_widgets.dart';
 import 'package:kazumi/services/storage/storage.dart';
 import 'package:kazumi/services/sync/bangumi_sync_service.dart';
+import 'package:kazumi/bean/widget/dpad_radio_group.dart';
 
 enum _BangumiAction { verify, connect, sync }
 
@@ -195,7 +196,7 @@ class _BangumiSyncPageState extends State<BangumiSyncPage> {
                           horizontal: 20, vertical: 4),
                       childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                       children: [
-                        RadioGroup<BangumiSyncPriority>(
+                        DpadRadioGroup<BangumiSyncPriority>(
                           groupValue: priority,
                           onChanged: (value) async {
                             if (value == null || _busy) return;

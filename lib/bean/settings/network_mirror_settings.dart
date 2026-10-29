@@ -6,6 +6,7 @@ import 'package:kazumi/services/network/bangumi_acceleration.dart';
 import 'package:kazumi/services/network/image_acceleration.dart';
 import 'package:kazumi/services/network/rules_mirror.dart';
 import 'package:kazumi/services/storage/storage.dart';
+import 'package:kazumi/bean/widget/dpad_radio_group.dart';
 
 class NetworkMirrorSettings extends StatefulWidget {
   const NetworkMirrorSettings({super.key, this.margin});
@@ -94,7 +95,7 @@ Future<bool> selectAccelerationMode<T extends AccelerationMode>(
     builder: (context) => SimpleDialog(
       title: Text(title),
       children: [
-        RadioGroup<T>(
+        DpadRadioGroup<T>(
           groupValue: current,
           onChanged: (value) => Navigator.of(context).pop(value),
           child: Column(

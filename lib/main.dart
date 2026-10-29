@@ -23,9 +23,14 @@ import 'package:kazumi/services/platform/desktop_window_config.dart';
 import 'package:kazumi/services/platform/webview_feature_service.dart';
 import 'package:kazumi/bean/dialog/dialog_helper.dart';
 import 'package:kazumi/navigation.dart';
+import 'package:kazumi/utils/back_key_guard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // TV build: show focus from launch instead of waiting for the first key.
+  FocusManager.instance.highlightStrategy =
+      FocusHighlightStrategy.alwaysTraditional;
+  BackKeyGuard.install();
   AppDeepLinks().start();
   registerEchHttpLicenses();
   MediaKit.ensureInitialized();

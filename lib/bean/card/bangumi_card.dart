@@ -11,11 +11,13 @@ class BangumiCardV extends StatelessWidget {
     required this.bangumiItem,
     this.canTap = true,
     this.enableHero = true,
+    this.autofocus = false,
   });
 
   final BangumiItem bangumiItem;
   final bool canTap;
   final bool enableHero;
+  final bool autofocus;
 
   @override
   Widget build(BuildContext context) {
@@ -25,6 +27,7 @@ class BangumiCardV extends StatelessWidget {
       margin: EdgeInsets.zero,
       child: GestureDetector(
         child: InkWell(
+          autofocus: autofocus,
           onTap: () {
             if (!canTap) {
               KazumiDialog.showToast(

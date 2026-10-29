@@ -4,6 +4,7 @@ import 'package:kazumi/bean/settings/settings_list.dart';
 import 'package:kazumi/bean/widget/split_list_row.dart';
 import 'package:kazumi/services/network/metered_network_service.dart';
 import 'package:kazumi/services/player/low_memory_mode.dart';
+import 'package:kazumi/bean/widget/dpad_radio_group.dart';
 
 class LowMemoryModeSettingsTile extends StatelessWidget {
   const LowMemoryModeSettingsTile({super.key});
@@ -97,7 +98,7 @@ class _LowMemoryModeDialogState extends State<_LowMemoryModeDialog> {
                 ),
               ),
               const SizedBox(height: 16),
-              RadioGroup<LowMemoryMode>(
+              DpadRadioGroup<LowMemoryMode>(
                 groupValue: mode,
                 onChanged: _selectMode,
                 child: SplitListGroup(

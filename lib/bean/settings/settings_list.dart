@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:kazumi/bean/widget/content_section.dart';
 import 'package:kazumi/bean/widget/split_list_row.dart';
+import 'package:kazumi/bean/widget/dpad_radio_group.dart';
 
 enum _TileKind { plain, toggle, radio }
 
@@ -91,7 +92,7 @@ class SettingsRadioSection<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RadioGroup<T>(
+    return DpadRadioGroup<T>(
       groupValue: groupValue,
       onChanged: onChanged,
       child: SettingsSection(title: title, tiles: tiles),

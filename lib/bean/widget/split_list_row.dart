@@ -17,6 +17,7 @@ class SplitListRow extends StatefulWidget {
     this.bottomRadius = splitListInnerRadius,
     this.pressedRadius = splitListOuterRadius,
     this.onTap,
+    this.autofocus = false,
   });
 
   final Widget child;
@@ -25,6 +26,7 @@ class SplitListRow extends StatefulWidget {
   final double bottomRadius;
   final double pressedRadius;
   final VoidCallback? onTap;
+  final bool autofocus;
 
   /// Forward a child InkWell's onHighlightChanged here.
   static ValueChanged<bool>? pressReporterOf(BuildContext context) {
@@ -50,6 +52,7 @@ class _SplitListRowState extends State<SplitListRow> {
         ? widget.child
         : InkWell(
             onTap: widget.onTap,
+            autofocus: widget.autofocus,
             onHighlightChanged: _reportPress,
             child: widget.child,
           );

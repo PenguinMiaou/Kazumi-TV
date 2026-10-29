@@ -51,7 +51,7 @@ class KazumiMenuButton extends StatelessWidget {
         onOpen: onOpen,
         onClose: onClose,
         style: style,
-        menuChildren: menuChildren,
+        menuChildren: [const _FocusFirstMenuItem(), ...menuChildren],
         builder: (context, controller, _) => builder(
           context,
           enabled && menuChildren.isNotEmpty
@@ -61,6 +61,37 @@ class KazumiMenuButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Moves focus into a freshly opened menu.
+///
+/// [MenuAnchor] keeps its items in a separate focus scope and only enters it
+/// for menu bars and submenu buttons, so with a custom anchor child a D-pad
+/// remote could open a menu but never reach its items. The selected item
+/// claims focus through autofocus; otherwise the first item gets it here.
+class _FocusFirstMenuItem extends StatefulWidget {
+  const _FocusFirstMenuItem();
+
+  @override
+  State<_FocusFirstMenuItem> createState() => _FocusFirstMenuItemState();
+}
+
+class _FocusFirstMenuItemState extends State<_FocusFirstMenuItem> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final scope = FocusScope.of(context);
+      if (scope.focusedChild != null) return;
+      final policy = FocusTraversalGroup.maybeOf(context) ??
+          ReadingOrderTraversalPolicy();
+      policy.findFirstFocus(scope, ignoreCurrentFocus: true)?.requestFocus();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class KazumiMenuItem extends StatelessWidget {
@@ -98,6 +129,7 @@ class KazumiMenuItem extends StatelessWidget {
           );
     return MenuItemButton(
       onPressed: onPressed,
+      autofocus: selected == true,
       requestFocusOnHover: requestFocusOnHover,
       style: ButtonStyle(
         foregroundColor: foregroundColor,

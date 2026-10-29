@@ -7,6 +7,29 @@ import 'package:kazumi/navigation.dart';
 import 'package:kazumi/pages/menu/route_visibility.dart';
 import 'package:kazumi/pages/router.dart';
 
+const _railDestinations = <NavigationRailDestination>[
+  NavigationRailDestination(
+    selectedIcon: Icon(Icons.home),
+    icon: Icon(Icons.home_outlined),
+    label: Text('推荐'),
+  ),
+  NavigationRailDestination(
+    selectedIcon: Icon(Icons.timeline),
+    icon: Icon(Icons.timeline_outlined),
+    label: Text('时间表'),
+  ),
+  NavigationRailDestination(
+    selectedIcon: Icon(Icons.favorite),
+    icon: Icon(Icons.favorite_border),
+    label: Text('追番'),
+  ),
+  NavigationRailDestination(
+    selectedIcon: Icon(Icons.settings),
+    icon: Icon(Icons.settings_outlined),
+    label: Text('我的'),
+  ),
+];
+
 class ScaffoldMenu extends StatefulWidget {
   const ScaffoldMenu({super.key, required this.location});
 
@@ -18,6 +41,8 @@ class ScaffoldMenu extends StatefulWidget {
 
 class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   final _outletKey = GlobalKey<RouterOutletState>();
+  final _railFocus = FocusScopeNode(debugLabel: 'Menu rail');
+  final _outletFocus = FocusScopeNode(debugLabel: 'Menu outlet');
   late int _selectedIndex = menu.indexForPath(widget.location);
   DateTime? _lastExitPromptAt;
 
@@ -45,6 +70,8 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
   @override
   void dispose() {
     rootRouteObserver.unsubscribe(this);
+    _railFocus.dispose();
+    _outletFocus.dispose();
     super.dispose();
   }
 
@@ -70,6 +97,40 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
     if (outlet == null) return;
     outlet.navigate('/tab${menu.getPath(index)}/');
     setState(() => _selectedIndex = index);
+  }
+
+  /// The outlet is a nested Navigator whose route scopes stop directional
+  /// focus at their edge, so a D-pad remote could never reach the rail.
+  KeyEventResult _handleOutletKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent ||
+        event.logicalKey != LogicalKeyboardKey.arrowLeft) {
+      return KeyEventResult.ignored;
+    }
+    final focused = FocusManager.instance.primaryFocus;
+    if (focused == null ||
+        !focused.focusInDirection(TraversalDirection.left)) {
+      _focusSelectedDestination();
+    }
+    return KeyEventResult.handled;
+  }
+
+  KeyEventResult _handleRailKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent ||
+        event.logicalKey != LogicalKeyboardKey.arrowRight) {
+      return KeyEventResult.ignored;
+    }
+    _outletFocus.requestFocus();
+    return KeyEventResult.handled;
+  }
+
+  void _focusSelectedDestination() {
+    final nodes = ReadingOrderTraversalPolicy()
+        .sortDescendants(_railFocus.traversalDescendants, _railFocus)
+        .toList();
+    if (nodes.isEmpty) return;
+    // The search button leads the rail; the destinations come last.
+    final index = nodes.length - _railDestinations.length + _selectedIndex;
+    nodes[index.clamp(0, nodes.length - 1)].requestFocus();
   }
 
   void _handleSystemBack(BuildContext context) {
@@ -178,7 +239,10 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
       body: Row(
         children: [
           EmbeddedNativeControlArea(
-            child: NavigationRail(
+            child: FocusScope(
+              node: _railFocus,
+              onKeyEvent: _handleRailKey,
+              child: NavigationRail(
               backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
               groupAlignment: 1,
               leading: FloatingActionButton(
@@ -188,33 +252,19 @@ class _ScaffoldMenu extends State<ScaffoldMenu> with RouteAware {
                 child: const Icon(Icons.search),
               ),
               labelType: NavigationRailLabelType.selected,
-              destinations: const <NavigationRailDestination>[
-                NavigationRailDestination(
-                  selectedIcon: Icon(Icons.home),
-                  icon: Icon(Icons.home_outlined),
-                  label: Text('推荐'),
-                ),
-                NavigationRailDestination(
-                  selectedIcon: Icon(Icons.timeline),
-                  icon: Icon(Icons.timeline_outlined),
-                  label: Text('时间表'),
-                ),
-                NavigationRailDestination(
-                  selectedIcon: Icon(Icons.favorite),
-                  icon: Icon(Icons.favorite_border),
-                  label: Text('追番'),
-                ),
-                NavigationRailDestination(
-                  selectedIcon: Icon(Icons.settings),
-                  icon: Icon(Icons.settings_outlined),
-                  label: Text('我的'),
-                ),
-              ],
+              destinations: _railDestinations,
               selectedIndex: selectedIndex,
               onDestinationSelected: _selectDestination,
+              ),
             ),
           ),
-          Expanded(child: _outlet(context, borderRadius: borderRadius)),
+          Expanded(
+            child: FocusScope(
+              node: _outletFocus,
+              onKeyEvent: _handleOutletKey,
+              child: _outlet(context, borderRadius: borderRadius),
+            ),
+          ),
         ],
       ),
     );
