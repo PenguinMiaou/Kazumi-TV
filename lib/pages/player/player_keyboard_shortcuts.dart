@@ -30,6 +30,7 @@ class PlayerKeyboardShortcuts extends StatefulWidget {
     required this.actions,
     this.longPressActions = const <String, PlayerLongPressShortcutActions>{},
     this.isBlocked,
+    this.passThrough,
     this.shortcuts,
   });
 
@@ -37,6 +38,10 @@ class PlayerKeyboardShortcuts extends StatefulWidget {
   final Map<String, PlayerShortcutAction> actions;
   final Map<String, PlayerLongPressShortcutActions> longPressActions;
   final bool Function()? isBlocked;
+
+  /// Leaves a single event to the focused control instead, e.g. while a D-pad
+  /// remote is moving between the panel's buttons.
+  final bool Function(KeyEvent event)? passThrough;
   final Map<String, List<String>>? shortcuts;
 
   @override
@@ -91,7 +96,7 @@ class _PlayerKeyboardShortcutsState extends State<PlayerKeyboardShortcuts> {
       }
     }
 
-    if (!_shouldHandleShortcut()) {
+    if (!_shouldHandleShortcut() || (widget.passThrough?.call(event) ?? false)) {
       return KeyEventResult.ignored;
     }
 

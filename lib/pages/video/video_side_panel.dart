@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:kazumi/bean/widget/side_panel_transition.dart';
 
 class VideoSidePanel extends StatefulWidget {
@@ -31,6 +32,22 @@ class VideoSidePanelState extends State<VideoSidePanel>
   );
   late final Animation<double> _opacity =
       _animation.drive(CurveTween(curve: Curves.easeIn));
+
+  /// Keeps D-pad focus inside the open panel; directional moves never leave
+  /// their focus scope.
+  final _focusScope = FocusScopeNode(debugLabel: 'Video side panel');
+
+  /// Back closes the panel first; BackKeyGuard keeps the key up from also
+  /// leaving the video.
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.goBack ||
+        !_isOpening) {
+      return KeyEventResult.ignored;
+    }
+    close();
+    return KeyEventResult.handled;
+  }
 
   bool get _isOpening =>
       _animation.status == AnimationStatus.forward ||
@@ -68,6 +85,7 @@ class VideoSidePanelState extends State<VideoSidePanel>
   @override
   void dispose() {
     _animation.dispose();
+    _focusScope.dispose();
     super.dispose();
   }
 
@@ -100,7 +118,14 @@ class VideoSidePanelState extends State<VideoSidePanel>
                     ),
                   ),
                 ),
-                SidePanelTransition(animation: _animation, child: child!),
+                SidePanelTransition(
+                  animation: _animation,
+                  child: FocusScope(
+                    node: _focusScope,
+                    onKeyEvent: _handleKey,
+                    child: child!,
+                  ),
+                ),
               ],
             );
           },

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:canvas_danmaku/models/danmaku_content_item.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +28,7 @@ import 'package:kazumi/utils/format.dart';
 import 'package:kazumi/pages/player/player_transport_bar.dart';
 import 'package:kazumi/pages/player/player_screenshot_controls.dart';
 import 'package:kazumi/pages/player/player_progress_bar.dart';
+import 'package:kazumi/pages/player/player_speed_panel.dart';
 
 class PlayerItemPanel extends StatefulWidget {
   const PlayerItemPanel({
@@ -50,6 +50,7 @@ class PlayerItemPanel extends StatefulWidget {
     required this.panelVisibilityController,
     this.onToggleSidePanel,
     required this.keyboardFocus,
+    this.playPauseFocusNode,
     required this.acquirePlayerPanelHold,
     required this.onMenuVisibilityChanged,
     required this.handleDanmaku,
@@ -77,6 +78,9 @@ class PlayerItemPanel extends StatefulWidget {
   handleSuperResolutionChange;
   final AnimationController panelVisibilityController;
   final FocusNode keyboardFocus;
+
+  /// Where D-pad navigation of the panel starts.
+  final FocusNode? playPauseFocusNode;
   final PlayerPanelHold Function() acquirePlayerPanelHold;
   final ValueChanged<bool> onMenuVisibilityChanged;
   final VoidCallback handleDanmaku;
@@ -100,6 +104,31 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
   late final PlayerController playerController;
   final TextEditingController textController = TextEditingController();
   final FocusNode textFieldFocus = FocusNode();
+
+  /// D-pad: the full-width progress bar sends up to the top control on the
+  /// side it was entered from (back on the left, screenshot on the right).
+  /// Left to the default policy, up always went to the nearer screenshot.
+  final FocusNode _progressFocus = FocusNode();
+  final FocusNode _backButtonFocus = FocusNode();
+  final FocusNode _screenshotFocus = FocusNode();
+  FocusNode? _lastPrimaryFocus;
+  bool _progressEnteredFromRight = false;
+
+  void _trackProgressEntry() {
+    final focus = FocusManager.instance.primaryFocus;
+    if (focus == _lastPrimaryFocus) return;
+    final previous = _lastPrimaryFocus;
+    _lastPrimaryFocus = focus;
+    if (focus == _progressFocus && previous?.context != null) {
+      _progressEnteredFromRight =
+          previous!.rect.center.dx > _progressFocus.rect.center.dx;
+    }
+  }
+
+  /// Where D-pad scrubbing on the progress bar is heading; position updates
+  /// lag behind quick presses, so steps add up here instead.
+  Duration? _scrubTarget;
+  Timer? _scrubReset;
   int? _danmakuPauseTick;
 
   /// Whether this editor currently owns a pause. The sleep timer bumps
@@ -122,7 +151,98 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
     textFieldFocus.removeListener(_onDanmakuEditFocusChanged);
     textController.dispose();
     textFieldFocus.dispose();
+    FocusManager.instance.removeListener(_trackProgressEntry);
+    _progressFocus.dispose();
+    _backButtonFocus.dispose();
+    _screenshotFocus.dispose();
+    _scrubReset?.cancel();
     super.dispose();
+  }
+
+  /// D-pad: with the progress bar focused, left / right scrub the video.
+  KeyEventResult _handleProgressKey(FocusNode node, KeyEvent event) {
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp &&
+        event is! KeyUpEvent) {
+      final target =
+          _progressEnteredFromRight && _screenshotFocus.context != null
+          ? _screenshotFocus
+          : _backButtonFocus;
+      target.requestFocus();
+      return KeyEventResult.handled;
+    }
+    final forward = event.logicalKey == LogicalKeyboardKey.arrowRight;
+    if (event is KeyUpEvent ||
+        (!forward && event.logicalKey != LogicalKeyboardKey.arrowLeft)) {
+      return KeyEventResult.ignored;
+    }
+    final playback = playerController.playback;
+    final step = Duration(seconds: event is KeyRepeatEvent ? 30 : 10);
+    var target =
+        (_scrubTarget ?? playback.currentPosition) + (forward ? step : -step);
+    if (target < Duration.zero) target = Duration.zero;
+    if (target > playback.duration) target = playback.duration;
+    _scrubTarget = target;
+    _scrubReset?.cancel();
+    _scrubReset = Timer(const Duration(seconds: 1), () => _scrubTarget = null);
+    unawaited(playerController.seek(target));
+    return KeyEventResult.handled;
+  }
+
+  // Both TV dialogs hold the controls up until they close.
+  Future<void> _showSpeedPanel() async {
+    final hold = widget.acquirePlayerPanelHold();
+    await KazumiDialog.show<void>(
+      builder: (context) => PlayerSpeedPanel(
+        speed: playerController.playback.playerSpeed,
+        speeds: defaultPlaySpeedList,
+        onChanged: (speed) => unawaited(widget.setPlaybackSpeed(speed)),
+      ),
+    );
+    hold.release();
+  }
+
+  /// TV build: the sleep timer opens a dialog instead of a submenu. Submenus
+  /// open as soon as they take focus, and at the screen edge they open to the
+  /// left while their arrow keys still assume the right.
+  Future<void> _showTimedShutdownPicker() async {
+    final service = TimedShutdownService();
+    const off = 0, custom = -1;
+    final current = service.isActive ? service.setMinutes : off;
+    final hold = widget.acquirePlayerPanelHold();
+    final choice = await KazumiDialog.show<int>(
+      builder: (context) => SimpleDialog(
+        title: const Text('定时关闭'),
+        children: [
+          for (final (minutes, label) in const [
+            (off, '不开启'),
+            (15, '15 分钟'),
+            (30, '30 分钟'),
+            (60, '60 分钟'),
+            (custom, '自定义'),
+          ])
+            ListTile(
+              autofocus: minutes == current,
+              selected: minutes == current,
+              title: Text(label),
+              onTap: () => Navigator.of(context).pop(minutes),
+            ),
+        ],
+      ),
+    );
+    hold.release();
+    if (choice == null || !mounted) return;
+    if (choice == off) {
+      service.cancel();
+    } else if (choice == custom) {
+      TimedShutdownService.showCustomTimerDialog(
+        onExpired: widget.pauseForTimedShutdown,
+      );
+    } else {
+      service.start(choice, onExpired: widget.pauseForTimedShutdown);
+      KazumiDialog.showToast(
+        message: '已设置 ${service.formatMinutesToDisplay(choice)} 后定时关闭',
+      );
+    }
   }
 
   Future<void> _submitDanmakuText(String message) async {
@@ -347,6 +467,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
     super.initState();
     playerController = widget.playerController;
     textFieldFocus.addListener(_onDanmakuEditFocusChanged);
+    FocusManager.instance.addListener(_trackProgressEntry);
     final visibility = widget.panelVisibilityController.drive(
       CurveTween(curve: Curves.easeInOut),
     );
@@ -655,13 +776,6 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
     onSelected: widget.setPlaybackSpeed,
   );
 
-  List<Widget> get _superResolutionItems => _choiceItems(
-    SuperResolutionMode.values,
-    label: (value) => value.label,
-    selected: (value) => value == playerController.playback.superResolutionMode,
-    onSelected: widget.handleSuperResolutionChange,
-  );
-
   Widget _menuButton({
     required Widget child,
     required List<Widget> items,
@@ -720,18 +834,16 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
         ] else
           const Spacer(),
       ],
-      _menuButton(
-        child: const Text('超分辨率', style: TextStyle(color: Colors.white)),
-        items: _superResolutionItems,
-      ),
-      _menuButton(
+      // TV build: no super-resolution; Anime4K froze playback on the TV GPU.
+      // TV build: a speed bar panel instead of the long speed list.
+      TextButton(
+        onPressed: _showSpeedPanel,
         child: Text(
           playerController.playback.playerSpeed == 1
               ? '倍速'
               : '${playerController.playback.playerSpeed}x',
           style: const TextStyle(color: Colors.white),
         ),
-        items: _speedItems,
       ),
       _menuButton(
         child: const Icon(Icons.aspect_ratio_rounded, color: Colors.white),
@@ -767,6 +879,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
           desktop: isDesktop(),
         ),
         playPause: IconButton(
+          focusNode: widget.playPauseFocusNode,
           tooltip: playerController.playback.playing ? '暂停' : '播放',
           onPressed: () => playerController.playOrPause(),
           icon: PlayPauseIcon(
@@ -781,17 +894,21 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
           onPressed: widget.onNextEpisode,
         ),
         // Playback ticks only rebuild the progress bar and its time labels.
-        progressBuilder: ({required sideLabels}) => Observer(
-          builder: (context) => PlayerProgressBar(
-            sideLabels: sideLabels,
-            progress: playerController.playback.currentPosition,
-            buffered: playerController.playback.buffer,
-            total: playerController.playback.duration,
-            onDragStart: widget.handleProgressBarDragStart,
-            onDragUpdate: (position) =>
-                playerController.seeking.updateInteractiveSeek(position),
-            onDragEnd: widget.handleProgressBarDragEnd,
-            onSeek: playerController.seek,
+        progressBuilder: ({required sideLabels}) => Focus(
+          focusNode: _progressFocus,
+          onKeyEvent: _handleProgressKey,
+          child: Observer(
+            builder: (context) => PlayerProgressBar(
+              sideLabels: sideLabels,
+              progress: playerController.playback.currentPosition,
+              buffered: playerController.playback.buffer,
+              total: playerController.playback.duration,
+              onDragStart: widget.handleProgressBarDragStart,
+              onDragUpdate: (position) =>
+                  playerController.seeking.updateInteractiveSeek(position),
+              onDragEnd: widget.handleProgressBarDragEnd,
+              onSeek: playerController.seek,
+            ),
           ),
         ),
         timeLabel: Observer(
@@ -849,6 +966,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
           child: Row(
             children: [
               IconButton(
+                focusNode: _backButtonFocus,
                 color: Colors.white,
                 icon: const Icon(Icons.arrow_back_rounded),
                 tooltip: '返回',
@@ -877,9 +995,8 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
                   onCapture: widget.handleScreenShot,
                   onReview: widget.showScreenshotCandidates,
                 ),
-              if ((isDesktop() &&
-                      (compact || !videoPageController.isFullscreen)) ||
-                  Platform.isAndroid)
+              // TV build: no picture-in-picture button on Android.
+              if (isDesktop() && (compact || !videoPageController.isFullscreen))
                 IconButton(
                   onPressed: () async {
                     if (isDesktop()) {
@@ -927,10 +1044,6 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
                       menuChildren: _speedItems,
                       child: const Text('倍速'),
                     ),
-                    SubmenuButton(
-                      menuChildren: _superResolutionItems,
-                      child: const Text('超分辨率'),
-                    ),
                     _syncPlayMenuItem,
                   ],
                   KazumiMenuItem(
@@ -963,46 +1076,16 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
                     onPressed: playerController.launchExternalPlayer,
                     label: '外部播放',
                   ),
-                  SubmenuButton(
-                    menuChildren: [
-                      KazumiMenuItem(
-                        onPressed: TimedShutdownService().cancel,
-                        label: '不开启',
-                        selected: !TimedShutdownService().isActive,
-                      ),
-                      for (final int minutes in [15, 30, 60])
-                        KazumiMenuItem(
-                          onPressed: () {
-                            TimedShutdownService().start(
-                              minutes,
-                              onExpired: widget.pauseForTimedShutdown,
-                            );
-                            KazumiDialog.showToast(
-                              message:
-                                  '已设置 ${TimedShutdownService().formatMinutesToDisplay(minutes)} 后定时关闭',
-                            );
-                          },
-                          label: '$minutes 分钟',
-                          selected:
-                              TimedShutdownService().setMinutes == minutes,
-                        ),
-                      KazumiMenuItem(
-                        onPressed: () {
-                          TimedShutdownService.showCustomTimerDialog(
-                            onExpired: widget.pauseForTimedShutdown,
-                          );
-                        },
-                        label: '自定义',
-                      ),
-                    ],
-                    child: ValueListenableBuilder<int>(
-                      valueListenable:
-                          TimedShutdownService().remainingSecondsNotifier,
-                      builder: (context, remainingSeconds, _) => Text(
-                        remainingSeconds > 0
-                            ? "定时关闭 (${TimedShutdownService().formatRemainingTime()})"
-                            : "定时关闭",
-                      ),
+                  // TV build: a dialog instead of a submenu; see
+                  // _showTimedShutdownPicker.
+                  ValueListenableBuilder<int>(
+                    valueListenable:
+                        TimedShutdownService().remainingSecondsNotifier,
+                    builder: (context, remainingSeconds, _) => KazumiMenuItem(
+                      onPressed: _showTimedShutdownPicker,
+                      label: remainingSeconds > 0
+                          ? "定时关闭 (${TimedShutdownService().formatRemainingTime()})"
+                          : "定时关闭",
                     ),
                   ),
                   if (!compact) _syncPlayMenuItem,
@@ -1029,6 +1112,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
             const Spacer(),
             if (!playerController.panel.lockPanel)
               IconButton(
+                focusNode: _screenshotFocus,
                 icon: const Icon(
                   Icons.photo_camera_outlined,
                   color: Colors.white,
@@ -1036,19 +1120,7 @@ class _PlayerItemPanelState extends State<PlayerItemPanel> {
                 tooltip: '截图',
                 onPressed: widget.handleScreenShot,
               ),
-            IconButton(
-              icon: Icon(
-                playerController.panel.lockPanel
-                    ? Icons.lock_outline
-                    : Icons.lock_open,
-                color: Colors.white,
-              ),
-              tooltip: playerController.panel.lockPanel ? '解锁面板' : '锁定面板',
-              onPressed: () {
-                playerController.panel.lockPanel =
-                    !playerController.panel.lockPanel;
-              },
-            ),
+            // TV build: no lock button; it guards touch screens, not remotes.
             const Spacer(),
           ],
         ),

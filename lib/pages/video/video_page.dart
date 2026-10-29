@@ -64,10 +64,18 @@ class _VideoPageState extends State<VideoPage>
   bool showDebugLog = false;
   List<String> webviewLogLines = [];
   StreamSubscription<String>? _logSubscription;
-  final FocusNode keyboardFocus =
-      FocusNode(debugLabel: 'Video player shortcut scope');
+  // Whole-screen node: left in directional traversal, its centre sits closer
+  // than the real controls and swallows D-pad moves between them.
+  final FocusNode keyboardFocus = FocusNode(
+      debugLabel: 'Video player shortcut scope', skipTraversal: true);
 
   final _episodePanelKey = GlobalKey<EpisodeSelectionPanelState>();
+
+  /// Keeps the player controls up while the side panel is open.
+  final _sidePanelOpen = ValueNotifier<bool>(false);
+
+  /// The control that opened the side panel, to take focus back on close.
+  FocusNode? _focusBeforeSidePanel;
   final _sidePanelKey = GlobalKey<VideoSidePanelState>();
   late TabController tabController;
 
@@ -209,6 +217,7 @@ class _VideoPageState extends State<VideoPage>
 
   @override
   void dispose() {
+    _sidePanelOpen.dispose();
     clearExternalNavigationMark(_route);
     try {
       windowManager.removeListener(this);
@@ -265,9 +274,11 @@ class _VideoPageState extends State<VideoPage>
         playerController: playerController);
   }
 
-  void _revealCurrentEpisode() {
+  void _revealCurrentEpisode({bool focus = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _episodePanelKey.currentState?.revealCurrentEpisode();
+      if (mounted) {
+        _episodePanelKey.currentState?.revealCurrentEpisode(focus: focus);
+      }
     });
   }
 
@@ -340,8 +351,23 @@ class _VideoPageState extends State<VideoPage>
                 key: _sidePanelKey,
                 fullscreen: videoPageController.isFullscreen,
                 disableAnimations: disableAnimations,
-                onOpened: _revealCurrentEpisode,
-                onClosed: keyboardFocus.requestFocus,
+                onOpened: () {
+                  _focusBeforeSidePanel = FocusManager.instance.primaryFocus;
+                  _sidePanelOpen.value = true;
+                  _revealCurrentEpisode(focus: true);
+                },
+                onClosed: () {
+                  _sidePanelOpen.value = false;
+                  final previous = _focusBeforeSidePanel;
+                  _focusBeforeSidePanel = null;
+                  if (previous != null &&
+                      previous.context != null &&
+                      previous.canRequestFocus) {
+                    previous.requestFocus();
+                  } else {
+                    keyboardFocus.requestFocus();
+                  }
+                },
                 child: tabBody,
               ),
             ),
@@ -477,6 +503,7 @@ class _VideoPageState extends State<VideoPage>
                   videoPageController: videoPageController,
                   onToggleSidePanel:
                       layout.hasSidePanel ? _toggleSidePanel : null,
+                  sidePanelOpen: _sidePanelOpen,
                   changeEpisode: changeEpisode,
                   onBackPressed: _onBackPressed,
                   keyboardFocus: keyboardFocus,

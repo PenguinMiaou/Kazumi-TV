@@ -209,13 +209,17 @@ final List<String> defaultAnimeTags = const [
 
 // 播放器默认快捷键
 final Map<String, List<String>> defaultShortcuts = const {
-  'playorpause': [' '],
+  // D-pad remote: OK pauses, up / down bring up the controls; the remote's own
+  // volume keys drive the system volume.
+  'playorpause': [' ', 'Select'],
   'forward': ['Arrow Right'],
   'rewind': ['Arrow Left'],
+  'showcontrols': ['Arrow Up', 'Arrow Down'],
   'next': ['N'],
   'prev': ['P'],
-  'volumeup': ['Arrow Up'],
-  'volumedown': ['Arrow Down'],
+  // TV build: the remote's volume keys drive the in-player volume HUD.
+  'volumeup': ['Audio Volume Up'],
+  'volumedown': ['Audio Volume Down'],
   'togglemute': ['M'],
   'fullscreen': ['F'],
   'exitfullscreen': ['Escape'],
@@ -247,6 +251,7 @@ final Map<String, String> shortcutsChineseName = {
   'playorpause': '播放 / 暂停',
   'forward': '快进 / 长按倍速',
   'rewind': '快退',
+  'showcontrols': '显示控制栏',
   'next': '下一集',
   'prev': '上一集',
   'volumeup': '音量加',

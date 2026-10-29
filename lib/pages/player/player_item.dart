@@ -14,9 +14,11 @@ import 'package:kazumi/utils/constants.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/player/pip_utils.dart';
 import 'package:kazumi/services/sync/webdav.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:kazumi/pages/player/player_controller.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_modular/flutter_modular.dart';
 import 'package:kazumi/pages/video/video_controller.dart';
@@ -46,6 +48,7 @@ class PlayerItem extends StatefulWidget {
     required this.videoPageController,
     required this.fillsWindow,
     this.onToggleSidePanel,
+    this.sidePanelOpen,
     required this.changeEpisode,
     required this.onBackPressed,
     required this.keyboardFocus,
@@ -57,6 +60,9 @@ class PlayerItem extends StatefulWidget {
   final VideoPageController videoPageController;
   final bool fillsWindow;
   final VoidCallback? onToggleSidePanel;
+
+  /// While true the controls stay up instead of hiding on their timer.
+  final ValueListenable<bool>? sidePanelOpen;
   final Future<void> Function(int episode, {int currentRoad, int offset})
   changeEpisode;
   final VoidCallback onBackPressed;
@@ -125,7 +131,28 @@ class _PlayerItemState extends State<PlayerItem>
   Timer? _adjustmentHudHideTimer;
   final Set<PlayerPanelHold> _playerPanelHolds = <PlayerPanelHold>{};
   int _openPlayerMenuCount = 0;
+
+  /// Set while a D-pad remote moves between the panel's buttons.
+  bool _dpadPanelNavigation = false;
+  final _playPauseFocus = FocusNode(debugLabel: 'Player play/pause');
+  static final _dpadKeys = <LogicalKeyboardKey>{
+    LogicalKeyboardKey.arrowUp,
+    LogicalKeyboardKey.arrowDown,
+    LogicalKeyboardKey.arrowLeft,
+    LogicalKeyboardKey.arrowRight,
+    LogicalKeyboardKey.select,
+  };
   PlayerPanelHold? _progressBarDragHold;
+  PlayerPanelHold? _sidePanelHold;
+
+  /// Remote feedback while the controls are hidden: a brief play / pause
+  /// glyph, and the gesture seek HUD for key seeks.
+  late final AnimationController _playPauseFlash = AnimationController(
+    duration: const Duration(milliseconds: 650),
+    vsync: this,
+  );
+  bool _flashShowsPlay = false;
+  Timer? _seekHudTimer;
   PointerDeviceKind? _lastTapPointerKind;
   PointerDeviceKind? _lastDoubleTapPointerKind;
 
@@ -356,9 +383,10 @@ class _PlayerItemState extends State<PlayerItem>
 
   void _initKeyboardActions() {
     keyboardActions = {
-      'playorpause': () => playerController.playOrPause(),
+      'playorpause': _togglePlayPauseWithFeedback,
       'forward': handleShortcutForwardDown,
       'rewind': handleShortcutRewind,
+      'showcontrols': _showControlsForDpad,
       'next': () => handlePreNextEpisode('next'),
       'prev': () => handlePreNextEpisode('prev'),
       'volumeup': () => handleShortcutVolumeChange('up'),
@@ -379,6 +407,16 @@ class _PlayerItemState extends State<PlayerItem>
       'forward': PlayerLongPressShortcutActions(
         onRepeat: handleShortcutForwardRepeat,
         onRelease: handleShortcutForwardUp,
+      ),
+      // Holding a volume key keeps stepping. Claiming the release also keeps
+      // Android from handing the key-up to the system volume bar.
+      'volumeup': PlayerLongPressShortcutActions(
+        onRepeat: () => handleShortcutVolumeChange('up'),
+        onRelease: () {},
+      ),
+      'volumedown': PlayerLongPressShortcutActions(
+        onRepeat: () => handleShortcutVolumeChange('down'),
+        onRelease: () {},
       ),
     };
   }
@@ -425,7 +463,27 @@ class _PlayerItemState extends State<PlayerItem>
     widget.changeEpisode(targetEpisode, currentRoad: currentRoad);
   }
 
+  void _togglePlayPauseWithFeedback() {
+    _flashShowsPlay = !playerController.playback.playing;
+    playerController.playOrPause();
+    if (!widget.disableAnimations && !MediaQuery.disableAnimationsOf(context)) {
+      _playPauseFlash.forward(from: 0);
+    }
+  }
+
+  void _flashSeekHud(int direction) {
+    playerController.panel
+      ..seekDirection = direction
+      ..seekCancelPending = false
+      ..showSeekTime = true;
+    _seekHudTimer?.cancel();
+    _seekHudTimer = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) playerController.panel.showSeekTime = false;
+    });
+  }
+
   Future<void> handleShortcutRewind() async {
+    _flashSeekHud(-1);
     try {
       await _seekWithPlayerTimer(
         () => playerController.seekBy(
@@ -457,6 +515,7 @@ class _PlayerItemState extends State<PlayerItem>
       playerController.panel.showPlaySpeed = false;
       await setPlaybackSpeed(lastPlayerSpeed);
     } else {
+      _flashSeekHud(1);
       try {
         await _seekWithPlayerTimer(
           () => playerController.seekBy(
@@ -996,6 +1055,68 @@ class _PlayerItemState extends State<PlayerItem>
     _panelVisibilityController.reverse();
     _cancelHideTimer();
     playerController.panel.showVideoController = false;
+    if (_dpadPanelNavigation) {
+      // Hidden buttons stay mounted; give the keys back to the shortcuts.
+      _dpadPanelNavigation = false;
+      widget.keyboardFocus.requestFocus();
+    }
+  }
+
+  /// Up / down on a remote: bring up the controls and start on play / pause so
+  /// the D-pad can move between them and select presses them.
+  void _showControlsForDpad() {
+    _dpadPanelNavigation = true;
+    showVideoController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _dpadPanelNavigation) {
+        _playPauseFocus.requestFocus();
+      }
+    });
+  }
+
+  /// Back on a remote first closes the controls, like other TV players;
+  /// BackKeyGuard keeps the key up from also leaving the video.
+  KeyEventResult _handleBackKey(KeyEvent event) {
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.goBack) {
+      return KeyEventResult.ignored;
+    }
+    final route = ModalRoute.of(context);
+    final focus = FocusManager.instance.primaryFocus;
+    // Focus in the side panel or a dialog: let those take the back press.
+    final focusInPlayer =
+        focus != null &&
+        (focus == widget.keyboardFocus ||
+            focus.ancestors.contains(widget.keyboardFocus));
+    if (!playerController.panel.showVideoController ||
+        !_canHidePlayerPanel ||
+        !focusInPlayer ||
+        _openPlayerMenuCount > 0 ||
+        (route != null && !route.isCurrent)) {
+      return KeyEventResult.ignored;
+    }
+    hideVideoController();
+    return KeyEventResult.handled;
+  }
+
+  void _onSidePanelChanged() {
+    if (widget.sidePanelOpen?.value ?? false) {
+      _sidePanelHold ??= acquirePlayerPanelHold();
+    } else {
+      _sidePanelHold?.release();
+      _sidePanelHold = null;
+    }
+  }
+
+  bool _passDpadKeyToPanel(KeyEvent event) {
+    if (!_dpadPanelNavigation || !_dpadKeys.contains(event.logicalKey)) {
+      return false;
+    }
+    if (event is! KeyUpEvent) {
+      // Keep the panel up while the user is moving through it.
+      showVideoController();
+    }
+    return true;
   }
 
   PlayerPanelHold acquirePlayerPanelHold() {
@@ -1064,17 +1185,21 @@ class _PlayerItemState extends State<PlayerItem>
     }
   }
 
+  /// TV build: one system volume step (the TV's media volume runs 0-100) per
+  /// remote press, as the TV's own volume bar does.
+  static const double _volumeKeyStep = 1;
+
   Future<void> handleShortcutVolumeChange(String type) async {
     try {
       switch (type) {
         case 'up':
           await playerController.setVolume(
-            playerController.playback.volume + 10,
+            playerController.playback.volume + _volumeKeyStep,
           );
           break;
         case 'down':
           await playerController.setVolume(
-            playerController.playback.volume - 10,
+            playerController.playback.volume - _volumeKeyStep,
           );
           break;
         case 'mute':
@@ -1284,6 +1409,8 @@ class _PlayerItemState extends State<PlayerItem>
   void initState() {
     super.initState();
     playerController = widget.playerController;
+    FocusManager.instance.addEarlyKeyEventHandler(_handleBackKey);
+    widget.sidePanelOpen?.addListener(_onSidePanelChanged);
     _initKeyboardActions();
     _initPlayerMenu();
     _fullscreenListener = mobx.reaction<bool>(
@@ -1385,6 +1512,9 @@ class _PlayerItemState extends State<PlayerItem>
   @override
   void dispose() {
     // The route-scoped PlayerController owns playback disposal.
+    FocusManager.instance.removeEarlyKeyEventHandler(_handleBackKey);
+    widget.sidePanelOpen?.removeListener(_onSidePanelChanged);
+    _sidePanelHold?.release();
     _fullscreenListener();
     _playerSizeListener();
     WidgetsBinding.instance.removeObserver(this);
@@ -1395,7 +1525,10 @@ class _PlayerItemState extends State<PlayerItem>
     mouseScrollerTimer?.cancel();
     _adjustmentHudHideTimer?.cancel();
     _panelVisibilityController.dispose();
+    _playPauseFocus.dispose();
     _screenshotFeedbackController.dispose();
+    _playPauseFlash.dispose();
+    _seekHudTimer?.cancel();
     _disposePlayerMenu();
     if (Platform.isAndroid) {
       unawaited(_syncAndroidPIPPlayerPageState(false));
@@ -1452,11 +1585,51 @@ class _PlayerItemState extends State<PlayerItem>
                         actions: keyboardActions,
                         longPressActions: keyboardLongPressActions,
                         isBlocked: () => _openPlayerMenuCount > 0,
+                        passThrough: _passDpadKeyToPanel,
                       ),
                       Center(
                         key: _videoSurfaceKey,
                         child: PlayerItemSurface(
                           playerController: playerController,
+                        ),
+                      ),
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: ExcludeFocus(
+                            child: AnimatedBuilder(
+                              animation: _playPauseFlash,
+                              builder: (context, _) {
+                                if (!_playPauseFlash.isAnimating) {
+                                  return const SizedBox.shrink();
+                                }
+                                final t = _playPauseFlash.value;
+                                return Center(
+                                  child: Opacity(
+                                    opacity: 1 - t,
+                                    child: Transform.scale(
+                                      scale: 0.85 + 0.25 * t,
+                                      child: DecoratedBox(
+                                        decoration: const BoxDecoration(
+                                          color: Colors.black45,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(20),
+                                          child: Icon(
+                                            _flashShowsPlay
+                                                ? Icons.play_arrow_rounded
+                                                : Icons.pause_rounded,
+                                            size: 56,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
                         ),
                       ),
                       (playerController.playback.isBuffering ||
@@ -1574,6 +1747,7 @@ class _PlayerItemState extends State<PlayerItem>
                               panelVisibilityController:
                                   _panelVisibilityController,
                               keyboardFocus: widget.keyboardFocus,
+                              playPauseFocusNode: _playPauseFocus,
                               acquirePlayerPanelHold: acquirePlayerPanelHold,
                               onMenuVisibilityChanged:
                                   _handlePlayerMenuVisibilityChanged,

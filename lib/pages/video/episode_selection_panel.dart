@@ -40,6 +40,7 @@ class EpisodeSelectionPanel extends StatefulWidget {
 
 class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
   final _scrollController = ScrollController();
+  final _currentEpisodeFocus = FocusNode(debugLabel: 'Current episode');
   late final _observerController =
       ListObserverController(controller: _scrollController)
         ..cacheJumpIndexOffset = false;
@@ -60,8 +61,15 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
   }
 
-  Future<void> revealCurrentEpisode() async {
+  /// Scrolls the current episode into view; [focus] also hands it the focus,
+  /// for when the side panel opens under a D-pad remote.
+  Future<void> revealCurrentEpisode({bool focus = false}) async {
     if (!_canLocate) return;
+    if (focus) {
+      // Runs once the row is laid out, whether or not a jump was needed.
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _currentEpisodeFocus.requestFocus());
+    }
     setState(() => _visibleRoad = widget.selectedRoad);
     // Wait for the observer to bind the new road's sliver after layout.
     await WidgetsBinding.instance.endOfFrame;
@@ -93,6 +101,7 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _currentEpisodeFocus.dispose();
     super.dispose();
   }
 
@@ -210,13 +219,15 @@ class EpisodeSelectionPanelState extends State<EpisodeSelectionPanel> {
                               road.identifier[index].trim().isNotEmpty
                           ? road.identifier[index]
                           : '第$episode集';
+                      final selected = _visibleRoad == widget.selectedRoad &&
+                          episode == widget.selectedEpisode;
                       return _EpisodeRow(
                         key: ValueKey('$_visibleRoad:$episode'),
                         name: name,
                         first: index == 0,
                         last: index == count - 1,
-                        selected: _visibleRoad == widget.selectedRoad &&
-                            episode == widget.selectedEpisode,
+                        selected: selected,
+                        focusNode: selected ? _currentEpisodeFocus : null,
                         isPlaying: widget.isPlaying,
                         isOffline: widget.isOffline,
                         download: widget.downloads[road.data[index]],
@@ -520,12 +531,14 @@ class _EpisodeRow extends StatefulWidget {
     required this.disableAnimations,
     required this.onTap,
     this.download,
+    this.focusNode,
   });
 
   final String name;
   final bool first;
   final bool last;
   final bool selected;
+  final FocusNode? focusNode;
   final bool isPlaying;
   final bool isOffline;
   final bool disableAnimations;
@@ -633,6 +646,7 @@ class _EpisodeRowState extends State<_EpisodeRow>
           },
           child: InkWell(
             onTap: widget.onTap,
+            focusNode: widget.focusNode,
             onHighlightChanged: _setPressed,
             excludeFromSemantics: true,
             overlayColor: WidgetStateProperty.resolveWith((states) {
