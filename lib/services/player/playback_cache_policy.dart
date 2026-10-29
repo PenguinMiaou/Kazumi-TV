@@ -14,7 +14,14 @@ class PlaybackCachePolicy {
         _currentPlayer = currentPlayer;
 
   static const int _lowMemoryBufferSize = 2 * 1024 * 1024;
-  static const int _defaultBufferSize = 1500 * 1024 * 1024;
+  // TV build: forward and back caches each get this; 1500 MiB was far beyond
+  // the ~1 GB of RAM apps get on the TV.
+  static const int _defaultBufferSize = 128 * 1024 * 1024;
+
+  /// Foreground readahead. mpv's default (1000 h, with the disk cache) pulled
+  /// whole episodes at full speed onto the TV's ~4 GB of free storage, and
+  /// under copy-back decoding that download dropped hundreds of frames.
+  static const String foregroundReadaheadSecs = '300';
 
   final bool Function() _isLocalPlayback;
   final Player? Function() _currentPlayer;
@@ -64,6 +71,7 @@ class PlaybackCachePolicy {
         final size = bufferSize.toString();
         await pp.setProperty('demuxer-max-bytes', size);
         await pp.setProperty('demuxer-max-back-bytes', size);
+        await pp.setProperty('cache-secs', foregroundReadaheadSecs);
       });
     } catch (e) {
       KazumiLogger().w(

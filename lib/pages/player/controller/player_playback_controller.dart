@@ -252,7 +252,8 @@ abstract class _PlayerPlaybackController with Store {
       }
       try {
         final pp = player.platform as NativePlayer;
-        await pp.setProperty('cache-secs', wanted ? '0' : '36000');
+        await pp.setProperty('cache-secs',
+            wanted ? '0' : PlaybackCachePolicy.foregroundReadaheadSecs);
         if (!isCurrentPlayer(player)) {
           return;
         }

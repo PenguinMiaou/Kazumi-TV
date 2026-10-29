@@ -15,7 +15,9 @@ class NetworkImgLayer extends StatelessWidget {
     this.fadeOutDuration,
     this.fadeInDuration,
     this.origAspectRatio,
-    this.filterQuality = FilterQuality.high,
+    // TV build: covers already decode at display size, and high-quality
+    // sampling of a screenful of them kept the home grid near 26 fps.
+    this.filterQuality = FilterQuality.low,
     this.color,
     this.colorBlendMode,
     this.borderRadius,
@@ -76,8 +78,8 @@ class NetworkImgLayer extends StatelessWidget {
         memCacheWidth: memCacheWidth,
         memCacheHeight: memCacheHeight,
         fit: fit,
-        fadeOutDuration: fadeOutDuration ?? const Duration(milliseconds: 120),
-        fadeInDuration: fadeInDuration ?? const Duration(milliseconds: 120),
+        fadeOutDuration: fadeOutDuration ?? Duration.zero,
+        fadeInDuration: fadeInDuration ?? Duration.zero,
         filterQuality: filterQuality,
         color: color,
         colorBlendMode: colorBlendMode,

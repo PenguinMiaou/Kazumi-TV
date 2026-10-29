@@ -31,6 +31,9 @@ void main() async {
   FocusManager.instance.highlightStrategy =
       FocusHighlightStrategy.alwaysTraditional;
   BackKeyGuard.install();
+  // TV build: covers stay cached while a video plays; 100 MiB of them is a lot
+  // next to the player on ~1 GB of usable RAM.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 48 << 20;
   AppDeepLinks().start();
   registerEchHttpLicenses();
   MediaKit.ensureInitialized();

@@ -395,7 +395,9 @@ class SettingsKeys {
   );
   static const androidVideoRenderer = SettingKey<String>(
     _SettingBoxKey.androidVideoRenderer,
-    'auto',
+    // TV build: on the TV mpv's gpu output ran mediacodec-copy (every frame
+    // copied back to RAM); embed lets the decoder render to the surface.
+    'mediacodec_embed',
     group: SettingGroup.player,
   );
   static const androidAutoEnterPIP = SettingKey<bool>(

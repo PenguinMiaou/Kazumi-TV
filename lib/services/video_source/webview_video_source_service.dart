@@ -113,10 +113,22 @@ class WebViewVideoSourceService implements IVideoSourceService {
       if (didStartLoad) {
         await _webview?.unloadPage();
       }
+      await _releaseWebview();
       if (identical(_activeRequest, request)) {
         _activeRequest = null;
       }
     }
+  }
+
+  /// TV build: drop the parser once a resolve ends. Kept alive, its Chromium
+  /// renderer held ~126 MB through playback on a TV with ~1 GB for apps; the
+  /// next resolve recreates it at the cost of a slower start.
+  Future<void> _releaseWebview() async {
+    final webview = _webview;
+    _webview = null;
+    await _logSubscription?.cancel();
+    _logSubscription = null;
+    await webview?.dispose();
   }
 
   @override
