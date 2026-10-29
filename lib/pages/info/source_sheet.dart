@@ -13,6 +13,7 @@ import 'package:kazumi/bean/widget/loading_indicator.dart';
 import 'package:kazumi/bean/widget/empty_state_widget.dart';
 import 'package:kazumi/bean/widget/split_list_row.dart';
 import 'package:kazumi/bean/widget/state_presentation.dart';
+import 'package:kazumi/modules/history/history_module.dart';
 import 'package:kazumi/modules/search/plugin_search_module.dart';
 import 'package:kazumi/pages/collect/collect_controller.dart';
 import 'package:kazumi/pages/info/info_controller.dart';
@@ -20,6 +21,7 @@ import 'package:kazumi/pages/video/video_playback_args.dart';
 import 'package:kazumi/plugins/anti_crawler_config.dart';
 import 'package:kazumi/plugins/plugins.dart';
 import 'package:kazumi/plugins/plugins_controller.dart';
+import 'package:kazumi/repositories/history_repository.dart';
 import 'package:kazumi/services/logging/logger.dart';
 import 'package:kazumi/services/plugin/captcha_verification_service.dart';
 import 'package:kazumi/services/plugin/plugin_search_service.dart';
@@ -44,6 +46,30 @@ class SourceSheet extends StatefulWidget {
 class _SourceSheetState extends State<SourceSheet> with KazumiDialogOwner {
   final CollectController _collectController = inject<CollectController>();
   final PluginsController _pluginsController = inject<PluginsController>();
+
+  /// Source of this show's latest online watch, else of the latest online
+  /// watch overall; listed first while it can still offer results.
+  late final String? _lastUsedSource = _findLastUsedSource();
+
+  String? _findLastUsedSource() {
+    final installed = {
+      for (final plugin in _pluginsController.pluginList) plugin.name,
+    };
+    final watched = inject<IHistoryRepository>()
+        .getAllHistories()
+        .where(
+          (history) =>
+              history.entryKind == HistoryEntryKind.online &&
+              installed.contains(history.adapterName),
+        )
+        .toList();
+    final showId = widget.infoController.bangumiItem.id;
+    for (final history in watched) {
+      if (history.bangumiItem.id == showId) return history.adapterName;
+    }
+    return watched.isEmpty ? null : watched.first.adapterName;
+  }
+
   final Map<String, String> _sourceKeywords = {};
 
   late final String _keyword;
@@ -197,23 +223,46 @@ class _SourceSheetState extends State<SourceSheet> with KazumiDialogOwner {
                 widget.infoController.pluginSearchStatus[plugin.name] ??
                 PluginSearchStatus.pending,
             results: <SearchItem>[],
+            lastUsed: plugin.name == _lastUsedSource,
           ),
       };
       final seenBySource = <String, Set<String>>{};
-      String? firstResultSource;
+      final responseOrder = <String, int>{};
       // Responses follow completion order; groups keep configured order.
       for (final response in widget.infoController.pluginSearchResponseList) {
         final group = groupsByName[response.pluginName];
         if (group == null) continue;
+        responseOrder.putIfAbsent(group.name, () => responseOrder.length);
         final seen = seenBySource.putIfAbsent(group.name, () => <String>{});
         for (final result in response.data) {
           if (seen.add(result.src)) group.results.add(result);
         }
-        if (group.hasResults) firstResultSource ??= group.name;
       }
+      // Sources with results go first, fastest to answer on top, so late
+      // arrivals append instead of shifting the row being focused.
+      // Everything else keeps the configured order.
+      final groups = groupsByName.values.toList();
+      final configuredOrder = {
+        for (final (index, group) in groups.indexed) group.name: index,
+      };
+      int tieOrder(_SourceSearchGroup group) => group.hasResults
+          ? responseOrder[group.name]!
+          : configuredOrder[group.name]!;
+      // The last used source leads unless it came back empty or failed.
+      int pin(_SourceSearchGroup group) =>
+          group.lastUsed && group.sortRank <= 2 ? 0 : 1;
+      groups.sort((a, b) {
+        final byPin = pin(a).compareTo(pin(b));
+        if (byPin != 0) return byPin;
+        final byRank = a.sortRank.compareTo(b.sortRank);
+        return byRank != 0 ? byRank : tieOrder(a).compareTo(tieOrder(b));
+      });
+      final firstResultSource = groups.first.hasResults
+          ? groups.first.name
+          : null;
       return _SourceSheetView(
         keyword: _keyword,
-        groups: groupsByName.values.toList(),
+        groups: groups,
         firstResultSource: firstResultSource,
         onSourceSearch: _showCustomKeyword,
         onSourceAliasSearch: _showAliasPicker,

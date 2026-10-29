@@ -6,16 +6,28 @@ class _SourceSearchGroup {
     required this.keyword,
     required this.status,
     required this.results,
+    this.lastUsed = false,
   });
 
   final String name;
   final String keyword;
   final PluginSearchStatus status;
   final List<SearchItem> results;
+  final bool lastUsed;
 
   bool get isSearching => status == PluginSearchStatus.pending;
   bool get hasResults =>
       status == PluginSearchStatus.success && results.isNotEmpty;
+
+  /// Results first, then sources still searching or needing a captcha, then
+  /// the ones that came back empty or failed.
+  int get sortRank => switch (status) {
+    _ when hasResults => 0,
+    PluginSearchStatus.pending => 1,
+    PluginSearchStatus.captcha => 2,
+    PluginSearchStatus.success || PluginSearchStatus.noResult => 3,
+    PluginSearchStatus.error => 4,
+  };
 
   String get statusLabel => switch (status) {
         PluginSearchStatus.pending => '检索中…',
@@ -176,7 +188,10 @@ class _SourceSheetViewState extends State<_SourceSheetView> {
   Widget _buildSourceGroup(_SourceSearchGroup group) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final display = _display[group.name] ?? _SourceDisplay.collapsed;
+    // D-pad: sources with results start open so a result is one press away.
+    final display =
+        _display[group.name] ??
+        (group.hasResults ? _SourceDisplay.preview : _SourceDisplay.collapsed);
     final collapsed = display == _SourceDisplay.collapsed;
     final duration = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
@@ -211,13 +226,24 @@ class _SourceSheetViewState extends State<_SourceSheetView> {
                           padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
                           child: Row(
                             children: [
-                              Expanded(
-                                  child: Text(
-                                group.name,
-                                style: theme.textTheme.labelLarge?.copyWith(
-                                  color: colors.onSurfaceVariant,
+                              Flexible(
+                                child: Text(
+                                  group.name,
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    color: colors.onSurfaceVariant,
+                                  ),
                                 ),
-                              )),
+                              ),
+                              if (group.lastUsed) ...[
+                                const SizedBox(width: 8),
+                                Text(
+                                  '上次使用',
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    color: colors.primary,
+                                  ),
+                                ),
+                              ],
+                              const Spacer(),
                               const SizedBox(width: 8),
                               Text(
                                 group.statusLabel,
@@ -386,6 +412,7 @@ class _SourceSheetViewState extends State<_SourceSheetView> {
           ? splitListOuterRadius
           : splitListInnerRadius,
       onTap: () => widget.onPlay(group.name, result),
+      autofocus: index == 0 && group.name == widget.firstResultSource,
       child: Semantics(
         button: true,
         label: '播放 ${result.name}，来源 ${group.name}',
