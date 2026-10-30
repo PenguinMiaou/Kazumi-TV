@@ -61,9 +61,9 @@ Kazumi 主线面向手机和电脑，电视版在这个仓库独立维护。电�
 
 ## 安装
 
-包名和官方版相同（`com.predidit.kazumi`），签名不同。电视上装过官方版的话，先卸载官方版再安装。
+在 [Releases](https://github.com/PenguinMiaou/Kazumi-TV/releases) 下载安装包：32 位电视（大多数电视）装 `armeabi-v7a`，64 位电视装 `arm64-v8a`。可以用 U 盘拷到电视上安装，也可以打开电视的 ADB 调试，用 `adb install` 安装。
 
-32 位电视（大多数电视）装 `app-armeabi-v7a-release.apk`，64 位电视装 `app-arm64-v8a-release.apk`。可以用 U 盘拷到电视上安装，也可以打开电视的 ADB 调试，用 `adb install` 安装。
+包名是 `io.github.penguinmiaou.kazumitv`，应用名 Kazumi TV，和官方 Kazumi 可以同时安装。应用内的检查更新会从本仓库的 Releases 下载和电视匹配的安装包。
 
 ## 编译
 
@@ -74,6 +74,8 @@ flutter pub get
 flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64
 # 输出在 build/app/outputs/flutter-apk/
 ```
+
+发布签名从 `android/key.properties` 读取（`storeFile`、`storePassword`、`keyAlias`、`keyPassword`）。没有这个文件时使用调试签名。
 
 ## 许可证
 

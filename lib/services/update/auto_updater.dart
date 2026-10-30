@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -85,6 +86,12 @@ String getUpdateFileHashFromAsset(Map<String, dynamic> asset) {
   return '';
 }
 
+String get _androidAbi => switch (Abi.current()) {
+      Abi.androidArm => 'armeabi-v7a',
+      Abi.androidX64 => 'x86_64',
+      _ => 'arm64-v8a',
+    };
+
 List<String> getUpdateFilePatterns(InstallationType installationType) {
   switch (installationType) {
     case InstallationType.windowsMsix:
@@ -94,7 +101,8 @@ List<String> getUpdateFilePatterns(InstallationType installationType) {
     case InstallationType.macosDmg:
       return ['macos', '.dmg'];
     case InstallationType.androidApk:
-      return ['android', '.apk'];
+      // TV build: one APK per ABI; 32-bit TVs must not get the arm64 one.
+      return ['android', _androidAbi, '.apk'];
     case InstallationType.linuxDeb:
     case InstallationType.linuxTar:
     case InstallationType.ios:
@@ -159,7 +167,8 @@ class AutoUpdater {
   }
 
   Future<Map<String, dynamic>> _latestRelease() async {
-    final raw = await _downloadClient.getPlain(ApiEndpoints.latestAppMirror);
+    // TV build: releases come from this fork, not the Kazumi update mirror.
+    final raw = await _downloadClient.getPlain(ApiEndpoints.latestApp);
     final data = json.decode(raw);
     if (data is! Map) {
       throw Exception('Invalid update response');

@@ -3,7 +3,7 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application
-        android:label="Kazumi"
+        android:label="Kazumi TV"
         android:banner="@drawable/tv_banner"
         android:name="${applicationName}"
         android:usesCleartextTraffic="true"

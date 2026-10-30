@@ -9,10 +9,12 @@ import 'package:kazumi/utils/crypto.dart';
 
 String getUpdateDownloadUrlFromAsset(
     Map<String, dynamic>? asset, UpdateDownloadSource source) {
+  // GitHub's own release data has no mirror URL; fall back to GitHub.
   final url = asset?[switch (source) {
-    UpdateDownloadSource.mirror => 'mirror_download_url',
-    UpdateDownloadSource.github => 'browser_download_url',
-  }];
+        UpdateDownloadSource.mirror => 'mirror_download_url',
+        UpdateDownloadSource.github => 'browser_download_url',
+      }] ??
+      asset?['browser_download_url'];
   return url is String ? url.trim() : '';
 }
 

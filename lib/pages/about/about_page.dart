@@ -38,9 +38,9 @@ class AboutPage extends StatelessWidget {
                       url: '${ApiEndpoints.sourceUrl}/issues',
                     ),
                     AboutLinkTile(
-                      icon: Icons.forum_rounded,
-                      title: 'Telegram',
-                      url: ApiEndpoints.telegramGroup,
+                      icon: Icons.favorite_border_rounded,
+                      title: 'Kazumi 原项目',
+                      url: ApiEndpoints.upstreamUrl,
                     ),
                   ],
                 ),
